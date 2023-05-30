@@ -66,6 +66,15 @@ extern unsigned int mapcounts[];
  */
 bool lookup_tlb(unsigned int vpn, unsigned int rw, unsigned int *pfn)
 {
+	// vpn is Virtual Page Number, r for read, w for write.
+	// pfn is Physical Frame Number
+
+	for(int i = 0; i < sizeof(tlb); i++){
+		if(tlb[i].valid == true && tlb[i].vpn == vpn){
+			*pfn = tlb[i].pfn;
+			return true;
+		}
+	}
 	return false;
 }
 
@@ -83,6 +92,7 @@ bool lookup_tlb(unsigned int vpn, unsigned int rw, unsigned int *pfn)
  */
 void insert_tlb(unsigned int vpn, unsigned int rw, unsigned int pfn)
 {
+	
 }
 
 
