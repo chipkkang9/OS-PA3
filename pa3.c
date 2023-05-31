@@ -69,7 +69,7 @@ bool lookup_tlb(unsigned int vpn, unsigned int rw, unsigned int *pfn)
 	// vpn is Virtual Page Number, r for read, w for write.
 	// pfn is Physical Frame Number
 
-	for(int i = 0; i < sizeof(tlb); i++){
+	for(int i = 0; i < sizeof(tlb) / sizeof(*tlb); i++){
 		if(tlb[i].valid == true && tlb[i].vpn == vpn){
 			*pfn = tlb[i].pfn;
 			return true;
@@ -92,7 +92,30 @@ bool lookup_tlb(unsigned int vpn, unsigned int rw, unsigned int *pfn)
  */
 void insert_tlb(unsigned int vpn, unsigned int rw, unsigned int pfn)
 {
-	
+	int index = -1;
+	for(int i = 0; i < sizeof(tlb) / sizeof(*tlb); i++){
+		if (tlb[i].valid == true && tlb[i].vpn == vpn){
+			index = i;
+			break;
+		}
+	}
+
+	if(index != -1){
+		tlb[index].rw = rw;
+		tlb[index].pfn = pfn;
+	}
+
+	else {
+		for(int i = 0; i < sizeof(tlb) / sizeof(*tlb); i++){
+			if(tlb[i].valid == false){
+				tlb[i].valid = true;
+				tlb[i].rw = rw;
+				tlb[i].vpn = vpn;
+				tlb[i].pfn = pfn;
+				break;
+			}
+		}
+	}
 }
 
 
@@ -114,7 +137,31 @@ void insert_tlb(unsigned int vpn, unsigned int rw, unsigned int pfn)
  */
 unsigned int alloc_page(unsigned int vpn, unsigned int rw)
 {
-	return -1;
+	int outer_ptes_index = vpn / NR_PTES_PER_PAGE;
+
+	if(current->pagetable.outer_ptes[outer_ptes_index] == NULL){
+		current->pagetable.outer_ptes[outer_ptes_index] = (struct pte_directory *)malloc(sizeof(struct pte_directory));
+		for(int i = 0; i < NR_PTES_PER_PAGE; i++){
+			current->pagetable.outer_ptes[outer_ptes_index]->ptes[i].valid = false;
+		} 
+	}	
+
+	unsigned int min_pfn = 0;
+    while (min_pfn < NR_PTES_PER_PAGE && current->pagetable.outer_ptes[outer_ptes_index]->ptes[min_pfn].valid) {
+        min_pfn++;
+    }
+
+    if (min_pfn == NR_PTES_PER_PAGE) {
+        return -1; 
+    }
+
+    current->pagetable.outer_ptes[outer_ptes_index]->ptes[min_pfn].valid = true;
+    current->pagetable.outer_ptes[outer_ptes_index]->ptes[min_pfn].rw = rw;
+    current->pagetable.outer_ptes[outer_ptes_index]->ptes[min_pfn].pfn = min_pfn;
+
+    insert_tlb(vpn, rw, min_pfn);
+
+    return min_pfn;
 }
 
 
