@@ -173,6 +173,23 @@ unsigned int alloc_page(unsigned int vpn, unsigned int rw)
  */
 void free_page(unsigned int   vpn)
 {
+	int pd_index = vpn / NR_PTES_PER_PAGE;
+	int pte_index = vpn % NR_PTES_PER_PAGE;
+
+	unsigned int pfn = current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn;
+	if(current->pagetable.outer_ptes[pd_index] != NULL && current->pagetable.outer_ptes[pd_index]->ptes[pte_index].valid == true){
+			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].valid = false;
+			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw = 0;
+			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn = 0;
+			mapcounts[pfn]--;
+
+			for(int i = 0; i < sizeof(tlb) / sizeof(*tlb); i++){
+				if(tlb[i].valid && tlb[i].vpn == vpn){
+					tlb[i].valid = false;
+					break;
+				}
+			}
+	}
 }
 
 
