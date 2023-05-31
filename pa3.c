@@ -137,31 +137,28 @@ void insert_tlb(unsigned int vpn, unsigned int rw, unsigned int pfn)
  */
 unsigned int alloc_page(unsigned int vpn, unsigned int rw)
 {
-	int outer_ptes_index = vpn / NR_PTES_PER_PAGE;
+	int pd_index = vpn / NR_PTES_PER_PAGE;
+	int pte_index = vpn % NR_PTES_PER_PAGE;
 
-	if(current->pagetable.outer_ptes[outer_ptes_index] == NULL){
-		current->pagetable.outer_ptes[outer_ptes_index] = (struct pte_directory *)malloc(sizeof(struct pte_directory));
-		for(int i = 0; i < NR_PTES_PER_PAGE; i++){
-			current->pagetable.outer_ptes[outer_ptes_index]->ptes[i].valid = false;
-		} 
-	}	
+	if(current->pagetable.outer_ptes[pd_index] == NULL){
+		current->pagetable.outer_ptes[pd_index] = malloc(sizeof(struct pte_directory));
+	}
+
+	current->pagetable.outer_ptes[pd_index]->ptes[pte_index].valid = true;
+	current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw = rw;
 
 	unsigned int min_pfn = 0;
-    while (min_pfn < NR_PTES_PER_PAGE && current->pagetable.outer_ptes[outer_ptes_index]->ptes[min_pfn].valid) {
-        min_pfn++;
-    }
+	while(mapcounts[min_pfn] != 0){
+		min_pfn++;
+		if(min_pfn == NR_PTES_PER_PAGE){
+			return -1;
+		}
+	}
 
-    if (min_pfn == NR_PTES_PER_PAGE) {
-        return -1; 
-    }
+	current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn = min_pfn;
+	mapcounts[min_pfn]++;
 
-    current->pagetable.outer_ptes[outer_ptes_index]->ptes[min_pfn].valid = true;
-    current->pagetable.outer_ptes[outer_ptes_index]->ptes[min_pfn].rw = rw;
-    current->pagetable.outer_ptes[outer_ptes_index]->ptes[min_pfn].pfn = min_pfn;
-
-    insert_tlb(vpn, rw, min_pfn);
-
-    return min_pfn;
+	return min_pfn;
 }
 
 
@@ -174,7 +171,7 @@ unsigned int alloc_page(unsigned int vpn, unsigned int rw)
  *   Also, consider the case when a page is shared by two processes,
  *   and one process is about to free the page. Also, think about TLB as well ;-)
  */
-void free_page(unsigned int vpn)
+void free_page(unsigned int   vpn)
 {
 }
 
