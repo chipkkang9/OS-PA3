@@ -211,6 +211,7 @@ void free_page(unsigned int vpn)
  *   @true on successful fault handling
  *   @false otherwise
  */
+
 bool handle_page_fault(unsigned int vpn, unsigned int rw)
 {
 	int pd_index = vpn / NR_PTES_PER_PAGE;
@@ -226,30 +227,34 @@ bool handle_page_fault(unsigned int vpn, unsigned int rw)
 		return false;
 	}
 
+	unsigned int pfn = current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn;
+	printf("\n%d\n", mapcounts[pfn]);
+
 	// 2. pte is not writable but @rw is for write
-	if (!current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw && (rw & ACCESS_WRITE)) {
+	if ((current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw < 2) && (rw >= ACCESS_WRITE)) {
 		// Copy-on-write
 		unsigned int pfn = current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn;
-		unsigned int new_pfn;
+		
 
 		if (mapcounts[pfn] == 1) {
-			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw = true;
-			return true;
-		} else if (mapcounts[pfn] > 1) {
+			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].valid = true;
+			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw = 3;
+			return false;
+		} 
+		else if (mapcounts[pfn] > 1 ){
+			mapcounts[pfn]--;
 			for (unsigned int i = 0; i < NR_PAGEFRAMES; i++) {
 				if (mapcounts[i] == 0) {
-					new_pfn = i;
-					break;
+					//new_pfn = i;
+					current->pagetable.outer_ptes[pd_index]->ptes[pte_index].valid = true;
+					current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw = 3;
+					current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn = i;
+
+					mapcounts[i]++;
+
+					return true;
 				}
 			}
-			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].valid = true;
-			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw = true;
-			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn = new_pfn;
-
-			mapcounts[new_pfn]++;
-			mapcounts[pfn]--;
-
-			return true;
 		}
 	}
 
@@ -287,12 +292,17 @@ void switch_process(unsigned int pid)
 		}
 	}
 
+	struct process * new_process = (struct process*)malloc(sizeof(struct process));
 	// If there is a process with @pid in @processes, switch to the process
 	if(flag == 1){
 		list_add_tail(&current->list, &processes);
-		current = tmp;
 		list_del_init(&tmp->list);
+		current = tmp;
 		ptbr = &(tmp->pagetable);
+
+		for (unsigned int i = 0; i < (1UL << (PTES_PER_PAGE_SHIFT * 2)); i++) {
+			tlb[i].valid = false;
+		}
 
 		return;
 	}
@@ -300,7 +310,6 @@ void switch_process(unsigned int pid)
 	// If there is no process with @pid in the @processes list
 	// for a process from the @current. Do like fork.
 	else{
-		struct process *new_process = (struct process*)malloc(sizeof(struct process));
 		new_process->pid = pid;
 
 		for(int i = 0; i < NR_PTES_PER_PAGE; i++){
@@ -309,15 +318,18 @@ void switch_process(unsigned int pid)
 				for(int j = 0; j < NR_PTES_PER_PAGE; j++){
 					if(current->pagetable.outer_ptes[i]->ptes[j].valid == true){
 						new_process->pagetable.outer_ptes[i]->ptes[j] = current->pagetable.outer_ptes[i]->ptes[j];
-						new_process->pagetable.outer_ptes[i]->ptes[j].rw = current->pagetable.outer_ptes[i]->ptes[j].rw = 0;
+						new_process->pagetable.outer_ptes[i]->ptes[j].rw = 1;
 						mapcounts[current->pagetable.outer_ptes[i]->ptes[j].pfn]++;
 					}
 				}
 			}
 		}
+	}
+	list_add_tail(&current->list, &processes);
+	current = new_process;
+	ptbr = &(new_process->pagetable);
 
-		list_add_tail(&current->list, &processes);
-		current = new_process;
-		ptbr = &(new_process->pagetable);
+	for (unsigned int i = 0; i < (1UL << (PTES_PER_PAGE_SHIFT * 2)); i++) {
+		tlb[i].valid = false;
 	}
 }
