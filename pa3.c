@@ -16,6 +16,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "types.h"
 #include "list_head.h"
@@ -135,6 +136,7 @@ void insert_tlb(unsigned int vpn, unsigned int rw, unsigned int pfn)
  *   Return allocated page frame number.
  *   Return -1 if all page frames are allocated.
  */
+
 unsigned int alloc_page(unsigned int vpn, unsigned int rw)
 {
 	int pd_index = vpn / NR_PTES_PER_PAGE;
@@ -168,10 +170,10 @@ unsigned int alloc_page(unsigned int vpn, unsigned int rw)
  * DESCRIPTION
  *   Deallocate the page from the current processor. Make sure that the fields
  *   for the corresponding PTE (valid, rw, pfn) is set @false or 0.
- *   Also, consider the case when a page is shared by two processes,
- *   and one process is about to free the page. Also, think about TLB as well ;-)
+ *   Also, consider carefully for the case when a page is shared by two processes,
+ *   and one process is to free the page.
  */
-void free_page(unsigned int   vpn)
+void free_page(unsigned int vpn)
 {
 	int pd_index = vpn / NR_PTES_PER_PAGE;
 	int pte_index = vpn % NR_PTES_PER_PAGE;
@@ -201,7 +203,7 @@ void free_page(unsigned int   vpn)
  *   by the framework when the __translate() for @vpn fails. This implies;
  *   0. page directory is invalid
  *   1. pte is invalid
- *   2. pte is not writable but @rw is for write
+ *   2. pte is not rw but @rw is for write
  *   This function should identify the situation, and do the copy-on-write if
  *   necessary.
  *
@@ -269,10 +271,53 @@ bool handle_page_fault(unsigned int vpn, unsigned int rw)
  *   from the @current. This implies the forked child process should have
  *   the identical page table entry 'values' to its parent's (i.e., @current)
  *   page table. 
- *   To implement the copy-on-write feature, you should manipulate the writable
+ *   To implement the copy-on-write feature, you should manipulate the rw
  *   bit in PTE and mapcounts for shared pages. You may use pte->private for 
  *   storing some useful information :-)
  */
 void switch_process(unsigned int pid)
 {
+    // Check if the process with @pid exists in the @processes list
+	struct process* tmp;
+	int flag = 0; // 1 is exist, 0 is not exist
+	list_for_each_entry(tmp, &processes, list){
+		if(tmp->pid == pid){
+			flag = 1;
+			break;
+		}
+	}
+
+	// If there is a process with @pid in @processes, switch to the process
+	if(flag == 1){
+		list_add_tail(&current->list, &processes);
+		current = tmp;
+		list_del_init(&tmp->list);
+		ptbr = &(tmp->pagetable);
+
+		return;
+	}
+
+	// If there is no process with @pid in the @processes list
+	// for a process from the @current. Do like fork.
+	else{
+		struct process *new_process = (struct process*)malloc(sizeof(struct process));
+		new_process->pid = pid;
+
+		for(int i = 0; i < NR_PTES_PER_PAGE; i++){
+			if(current->pagetable.outer_ptes[i] != NULL){
+				new_process->pagetable.outer_ptes[i] = malloc(sizeof(struct pte_directory));
+				for(int j = 0; j < NR_PTES_PER_PAGE; j++){
+					if(current->pagetable.outer_ptes[i]->ptes[j].valid == true){
+						new_process->pagetable.outer_ptes[i]->ptes[j] = current->pagetable.outer_ptes[i]->ptes[j];
+						new_process->pagetable.outer_ptes[i]->ptes[j].rw = current->pagetable.outer_ptes[i]->ptes[j].rw = 0;
+						mapcounts[current->pagetable.outer_ptes[i]->ptes[j].pfn]++;
+					}
+				}
+			}
+		}
+
+		list_add_tail(&current->list, &processes);
+		current = new_process;
+		ptbr = &(new_process->pagetable);
+	}
 }
