@@ -70,8 +70,11 @@ bool lookup_tlb(unsigned int vpn, unsigned int rw, unsigned int *pfn)
 	// vpn is Virtual Page Number, r for read, w for write.
 	// pfn is Physical Frame Number
 
+	if(rw == ACCESS_WRITE)
+		rw = 3;
+
 	for(int i = 0; i < sizeof(tlb) / sizeof(*tlb); i++){
-		if(tlb[i].valid == true && tlb[i].vpn == vpn){
+		if(tlb[i].valid == true && tlb[i].vpn == vpn && tlb[i].rw == rw){
 			*pfn = tlb[i].pfn;
 			return true;
 		}
@@ -95,7 +98,7 @@ void insert_tlb(unsigned int vpn, unsigned int rw, unsigned int pfn)
 {
 	int index = -1;
 	for(int i = 0; i < sizeof(tlb) / sizeof(*tlb); i++){
-		if (tlb[i].valid == true && tlb[i].vpn == vpn){
+		if (tlb[i].valid == true && tlb[i].vpn == vpn && tlb[i].rw == rw){
 			index = i;
 			break;
 		}
@@ -158,6 +161,7 @@ unsigned int alloc_page(unsigned int vpn, unsigned int rw)
 	}
 
 	current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn = min_pfn;
+	current->pagetable.outer_ptes[pd_index]->ptes[pte_index].private = rw;
 	mapcounts[min_pfn]++;
 
 	return min_pfn;
@@ -228,10 +232,9 @@ bool handle_page_fault(unsigned int vpn, unsigned int rw)
 	}
 
 	unsigned int pfn = current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn;
-	printf("\n%d\n", mapcounts[pfn]);
-
+	
 	// 2. pte is not writable but @rw is for write
-	if ((current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw < 2) && (rw >= ACCESS_WRITE)) {
+	if ((current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw < 2) && (current->pagetable.outer_ptes[pd_index]->ptes[pte_index].private == 3)) {
 		// Copy-on-write
 		unsigned int pfn = current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn;
 		
@@ -239,22 +242,20 @@ bool handle_page_fault(unsigned int vpn, unsigned int rw)
 		if (mapcounts[pfn] == 1) {
 			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].valid = true;
 			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw = 3;
-			return false;
+			return true;
 		} 
 		else if (mapcounts[pfn] > 1 ){
-			mapcounts[pfn]--;
 			for (unsigned int i = 0; i < NR_PAGEFRAMES; i++) {
 				if (mapcounts[i] == 0) {
-					//new_pfn = i;
+					mapcounts[i]++;
 					current->pagetable.outer_ptes[pd_index]->ptes[pte_index].valid = true;
 					current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw = 3;
 					current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn = i;
-
-					mapcounts[i]++;
-
-					return true;
+					break;
 				}
 			}
+			mapcounts[pfn]--;
+			return true;
 		}
 	}
 
@@ -317,6 +318,7 @@ void switch_process(unsigned int pid)
 				new_process->pagetable.outer_ptes[i] = malloc(sizeof(struct pte_directory));
 				for(int j = 0; j < NR_PTES_PER_PAGE; j++){
 					if(current->pagetable.outer_ptes[i]->ptes[j].valid == true){
+						current->pagetable.outer_ptes[i]->ptes[j].rw = 1;
 						new_process->pagetable.outer_ptes[i]->ptes[j] = current->pagetable.outer_ptes[i]->ptes[j];
 						new_process->pagetable.outer_ptes[i]->ptes[j].rw = 1;
 						mapcounts[current->pagetable.outer_ptes[i]->ptes[j].pfn]++;
