@@ -211,6 +211,53 @@ void free_page(unsigned int   vpn)
  */
 bool handle_page_fault(unsigned int vpn, unsigned int rw)
 {
+	int pd_index = vpn / NR_PTES_PER_PAGE;
+	int pte_index = vpn % NR_PTES_PER_PAGE;
+
+	// 0. page directory is invalid
+	if(current->pagetable.outer_ptes[pd_index] == NULL){
+		return false;
+	}
+
+	// 1. pte is invalid
+	if(current->pagetable.outer_ptes[pd_index]->ptes[pte_index].valid == false){
+		return false;
+	}
+
+	// 2. pte is not writable but @rw is for write
+	if (!current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw && (rw & ACCESS_WRITE)) {
+		// Copy-on-write
+		unsigned int pfn = current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn;
+		unsigned int new_pfn;
+
+		if (mapcounts[pfn] == 1) {
+			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw = true;
+			return true;
+		} else if (mapcounts[pfn] > 1) {
+			for (unsigned int i = 0; i < NR_PAGEFRAMES; i++) {
+				if (mapcounts[i] == 0) {
+					new_pfn = i;
+					break;
+				}
+			}
+
+			struct pte *new_pte = malloc(sizeof(struct pte));
+			new_pte->valid = true;
+			new_pte->rw = current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw;
+			new_pte->pfn = new_pfn;
+			new_pte->private = current->pagetable.outer_ptes[pd_index]->ptes[pte_index].private;
+
+			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].valid = true;
+			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw = true;
+			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn = new_pfn;
+
+			mapcounts[new_pfn]++;
+			mapcounts[pfn]--;
+
+			return true;
+		}
+	}
+
 	return false;
 }
 
