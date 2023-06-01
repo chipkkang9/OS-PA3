@@ -240,13 +240,6 @@ bool handle_page_fault(unsigned int vpn, unsigned int rw)
 					break;
 				}
 			}
-
-			struct pte *new_pte = malloc(sizeof(struct pte));
-			new_pte->valid = true;
-			new_pte->rw = current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw;
-			new_pte->pfn = new_pfn;
-			new_pte->private = current->pagetable.outer_ptes[pd_index]->ptes[pte_index].private;
-
 			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].valid = true;
 			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].rw = true;
 			current->pagetable.outer_ptes[pd_index]->ptes[pte_index].pfn = new_pfn;
